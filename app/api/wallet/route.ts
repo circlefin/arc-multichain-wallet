@@ -1,5 +1,5 @@
 /**
- * Copyright 2025 Circle Internet Group, Inc.  All rights reserved.
+ * Copyright 2026 Circle Internet Group, Inc.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,14 +16,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { NextResponse } from "next/server";
-import { circleDeveloperSdk } from "@/lib/circle/developer-controlled-wallets-client";
-import { Blockchain } from "@circle-fin/developer-controlled-wallets";
+import { NextRequest, NextResponse } from "next/server";
+import { circleDeveloperSdk } from "@/lib/circle/sdk";
 
-export async function POST(request: Request) {
+export async function POST(req: NextRequest) {
   try {
-    // Destructure the optional `blockchain` from the request body.
-    const { walletSetId, blockchain } = await request.json();
+    const { walletSetId } = await req.json();
 
     if (!walletSetId) {
       return NextResponse.json(
@@ -32,34 +30,28 @@ export async function POST(request: Request) {
       );
     }
 
-    // Use the provided blockchain, or fall back to the environment variable.
-    const targetBlockchain =
-      blockchain || (process.env.CIRCLE_BLOCKCHAIN as Blockchain);
+    const response = await circleDeveloperSdk.createWallets({
+      accountType: "EOA",
+      blockchains: ["ARC-TESTNET", "BASE-SEPOLIA", "AVAX-FUJI"],
+      count: 1,
+      walletSetId,
+    });
 
-    if (!targetBlockchain) {
-      throw new Error(
-        "Blockchain must be provided in the request or as a CIRCLE_BLOCKCHAIN environment variable."
+    if (!response.data?.wallets?.length) {
+      return NextResponse.json(
+        { error: "No wallets were created" },
+        { status: 500 }
       );
     }
 
-    const response = await circleDeveloperSdk.createWallets({
-      walletSetId,
-      blockchains: [targetBlockchain],
-      count: 1,
-      accountType: "SCA",
-    });
+    const [createdWallet] = response.data.wallets;
 
-    const newWallet = response.data?.wallets?.[0];
-
-    if (!newWallet) {
-      throw new Error("Circle API did not return a wallet object.");
-    }
-
-    return NextResponse.json(newWallet);
-  } catch (error: unknown) {
-    const message =
-      error instanceof Error ? error.message : "An unexpected error occurred.";
-    console.error("Error in /api/wallet:", message);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(createdWallet, { status: 201 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    return NextResponse.json(
+      { error: `Failed to create wallet: ${message}` },
+      { status: 500 }
+    );
   }
 }
