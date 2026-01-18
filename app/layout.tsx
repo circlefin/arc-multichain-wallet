@@ -1,5 +1,5 @@
 /**
- * Copyright 2025 Circle Internet Group, Inc.  All rights reserved.
+ * Copyright 2026 Circle Internet Group, Inc.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,9 +18,7 @@
 
 import type { Metadata } from "next";
 import { ThemeProvider } from "next-themes";
-import { WalletProvider } from "@/components/wallet/wallet-provider";
-import { UnsupportedNetworkNotice } from "@/components/wallet/unsupported-network-notice";
-import { Toaster } from "@/components/ui/sonner";
+import { WagmiProvider } from "@/components/wagmi-provider";
 import "./globals.css";
 
 const defaultUrl = process.env.VERCEL_URL
@@ -29,8 +27,8 @@ const defaultUrl = process.env.VERCEL_URL
 
 export const metadata: Metadata = {
   metadataBase: new URL(defaultUrl),
-  title: "Next.js and Supabase Starter Kit",
-  description: "The fastest way to build apps with Next.js and Supabase",
+  title: "Multichain Gateway Wallet",
+  description: "Demo for wallet with unified cross-chain USDC balances and transfers",
 };
 
 export default function RootLayout({
@@ -47,13 +45,9 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <WalletProvider>
-            <div className="fixed top-2 right-2 z-50 flex flex-col gap-2 items-end">
-              <UnsupportedNetworkNotice />
-            </div>
+          <WagmiProvider>
             {children}
-          </WalletProvider>
-          <Toaster />
+          </WagmiProvider>
         </ThemeProvider>
       </body>
     </html>
