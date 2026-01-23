@@ -74,18 +74,20 @@ export async function POST(req: NextRequest) {
     const amountInAtomicUnits = BigInt(Math.floor(parseFloat(amount) * 1_000_000));
 
     // Custodial flow (Circle Wallet)
-    const { data: wallet, error: walletError } = await supabase
+    const { data: wallets, error: walletError } = await supabase
       .from("wallets")
       .select("circle_wallet_id")
       .eq("user_id", user.id)
-      .single();
+      .limit(1);
 
-    if (walletError || !wallet?.circle_wallet_id) {
+    if (walletError || !wallets || wallets.length === 0) {
       return NextResponse.json(
         { error: "No Circle wallet found for this user." },
         { status: 404 }
       );
     }
+
+    const wallet = wallets[0];
 
     const transferResult = await transferUnifiedBalanceCircle(
       wallet.circle_wallet_id,
