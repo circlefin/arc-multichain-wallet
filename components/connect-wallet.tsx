@@ -24,7 +24,8 @@ import { useAccount, useDisconnect, useConnections } from "wagmi";
 import { ConnectDialog } from "@/components/connect-wallet-dialog";
 import { createClient } from "@/lib/supabase/client";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Loader2 } from "lucide-react";
+import { Loader2, Copy } from "lucide-react";
+import { toast } from "sonner";
 
 type CircleWallet = {
   wallet_address: string;
@@ -89,6 +90,12 @@ export function ConnectWallet({ onAccountsChange }: { onAccountsChange?: (accoun
         throw new Error("Failed to save wallet to your profile.");
       }
 
+      // Show success message with onboarding info
+      toast.success("Circle Wallet Created!", {
+        description: "Your wallet is ready. To get started, deposit testnet USDC or use our faucet.",
+        duration: 5000,
+      });
+
       window.location.reload();
     } finally {
       setIsCreatingCircleWallet(false);
@@ -103,8 +110,9 @@ export function ConnectWallet({ onAccountsChange }: { onAccountsChange?: (accoun
       if (user) {
         const { data, error } = await supabase
           .from("wallets")
-          .select("wallet_address")
-          .eq("user_id", user.id);
+          .select("wallet_address, type")
+          .eq("user_id", user.id)
+          .neq("type", "gateway_signer"); // Exclude EOA signer wallets from UI
         if (data && !error) {
           setCircleWallets(data);
         }
@@ -156,14 +164,55 @@ export function ConnectWallet({ onAccountsChange }: { onAccountsChange?: (accoun
             </Button>
           </ConnectDialog>
         </div>
-        <ul className="space-y-1">
+        <div className="space-y-2">
           {/* Render Circle Wallets */}
-          {circleWallets.map((wallet) => (
-            <li key={wallet.wallet_address} className="flex items-center justify-between bg-gray-50 dark:bg-gray-800 px-3 py-2 rounded">
-              <span className="font-mono text-xs truncate flex-1 text-gray-900 dark:text-gray-100">{wallet.wallet_address}</span>
-            </li>
+          {circleWallets.map((wallet, index) => (
+            <div key={wallet.wallet_address} className="bg-gray-50 dark:bg-gray-800 p-3 rounded-lg border border-gray-200 dark:border-gray-700">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-green-500 rounded-full" title="Circle Wallet"></div>
+                  <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Circle Wallet {index + 1}</span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0"
+                  onClick={() => navigator.clipboard.writeText(wallet.wallet_address)}
+                >
+                  <Copy className="h-3 w-3" />
+                </Button>
+              </div>
+              <p className="font-mono text-xs text-gray-900 dark:text-gray-100 mt-1 truncate">{wallet.wallet_address}</p>
+            </div>
           ))}
-        </ul>
+          
+          {/* Render Wagmi Wallets */}
+          {connections.map((connection, index) => (
+            <div key={`wagmi-${index}`} className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-200 dark:border-blue-800">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-blue-500 rounded-full" title="External Wallet"></div>
+                  <span className="text-xs font-medium text-blue-600 dark:text-blue-400">External Wallet {index + 1}</span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0"
+                  onClick={() => navigator.clipboard.writeText(connection.accounts[0])}
+                >
+                  <Copy className="h-3 w-3" />
+                </Button>
+              </div>
+              {connection.accounts.map((address, addrIndex) => (
+                <p key={addrIndex} className="font-mono text-xs text-gray-900 dark:text-gray-100 mt-1 truncate">{address}</p>
+              ))}
+            </div>
+          ))}
+          
+          {!hasCircleWallet && !hasWagmiWallet && (
+            <p className="text-xs text-muted-foreground italic">No wallets connected</p>
+          )}
+        </div>
       </div>
       {/* Only show Disconnect button if a wagmi wallet is connected */}
       {hasWagmiWallet && (

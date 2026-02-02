@@ -24,6 +24,8 @@ import {
 import { createClient } from "@/lib/supabase/server";
 
 export async function POST(req: NextRequest) {
+  let requestBody: any = {};
+  
   try {
     const supabase = await createClient();
     const {
@@ -34,7 +36,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { chain, amount } = await req.json();
+    requestBody = await req.json();
+    const { chain, amount } = requestBody;
 
     if (!chain || !amount) {
       return NextResponse.json(
@@ -73,24 +76,42 @@ export async function POST(req: NextRequest) {
 
     const amountInAtomicUnits = BigInt(Math.floor(parsedAmount * 1_000_000));
 
-    // Custodial flow (Circle Wallet)
-    const { data: wallet, error: walletError } = await supabase
+    // Get the user's multichain SCA wallet
+    const { data: wallets, error: walletError } = await supabase
       .from("wallets")
-      .select("circle_wallet_id")
+      .select("circle_wallet_id, wallet_set_id, address")
       .eq("user_id", user.id)
-      .single();
+      .eq("type", "sca")
+      .limit(1);
 
-    if (walletError || !wallet) {
+    if (walletError) {
+      console.error("Database error fetching wallets:", walletError);
       return NextResponse.json(
-        { error: "No Circle wallet found for this user." },
+        { error: "Database error when fetching wallets." },
+        { status: 500 }
+      );
+    }
+
+    if (!wallets || wallets.length === 0) {
+      console.log(`No SCA wallet found for user ${user.id}`);
+      return NextResponse.json(
+        { error: "No Circle wallet found. Please ensure wallet is created during signup." },
         { status: 404 }
       );
     }
 
+    const wallet = wallets[0];
+
+    // Get or create EOA signer wallet (multichain)
+    const { getOrCreateGatewayEOAWallet } = await import("@/lib/circle/create-gateway-eoa-wallets");
+    const { address: eoaAddress } = await getOrCreateGatewayEOAWallet(user.id, chain);
+
+    // Deposit to Gateway and add EOA as delegate (allows EOA to sign burn intents)
     const txHash = await initiateDepositFromCustodialWallet(
       wallet.circle_wallet_id,
       chain as SupportedChain,
-      amountInAtomicUnits
+      amountInAtomicUnits,
+      eoaAddress as `0x${string}`
     );
 
     // Store transaction in database
@@ -124,14 +145,13 @@ export async function POST(req: NextRequest) {
         data: { user },
       } = await supabase.auth.getUser();
 
-      if (user) {
-        const body = await req.json();
+      if (user && requestBody.chain) {
         await supabase.from("transaction_history").insert([
           {
             user_id: user.id,
-            chain: body.chain,
+            chain: requestBody.chain,
             tx_type: "deposit",
-            amount: parseFloat(body.amount || 0),
+            amount: parseFloat(requestBody.amount || 0),
             status: "failed",
             reason: error.message || "Unknown error",
             created_at: new Date().toISOString(),

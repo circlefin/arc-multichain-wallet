@@ -51,10 +51,8 @@ export function TransferForm({ onSuccess }: TransferFormProps) {
       return;
     }
 
-    if (sourceChain === destinationChain) {
-      setTransferError("Source and destination chains must be different");
-      return;
-    }
+    // Same-chain transfers are allowed (withdrawal from Gateway to wallet)
+    // Cross-chain transfers will go through Gateway's burn/mint process
 
     setTransferLoading(true);
     setTransferSuccess(null);
@@ -112,7 +110,10 @@ export function TransferForm({ onSuccess }: TransferFormProps) {
         }
       }
       const data = await response.json();
-      setTransferSuccess(`Transfer successful! Mint Tx: ${data.mintTxHash}`);
+      const successMessage = data.isSameChain
+        ? `Transfer successful! Withdrawal Tx: ${data.withdrawTxHash}`
+        : `Transfer successful! Mint Tx: ${data.mintTxHash}`;
+      setTransferSuccess(successMessage);
       setTransferAmount("");
       setTimeout(() => {
         onSuccess();

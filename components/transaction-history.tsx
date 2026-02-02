@@ -245,14 +245,9 @@ export function TransactionHistory() {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Transaction History</CardTitle>
-        <CardDescription>
-          View all your deposit and transfer transactions with detailed status information
-        </CardDescription>
-      </CardHeader>
+      
       <CardContent>
-        <div className="space-y-4">
+        <div className="space-y-4 mt-7">
           {/* Filters */}
           <div className="flex flex-col sm:flex-row gap-4">
             <Input

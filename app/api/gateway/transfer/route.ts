@@ -18,11 +18,15 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import {
-  transferUnifiedBalanceCircle,
+  transferGatewayBalanceWithEOA,
+  executeMintCircle,
+  withdrawFromCustodialWallet,
+  getCircleWalletAddress,
   type SupportedChain,
 } from "@/lib/circle/gateway-sdk";
 import { createClient } from "@/lib/supabase/server";
 import type { Address } from "viem";
+import { Transaction, Blockchain } from "@circle-fin/developer-controlled-wallets";
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient();
@@ -64,38 +68,59 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (sourceChain === destinationChain) {
-      return NextResponse.json(
-        { error: "Source and destination chains must be different" },
-        { status: 400 }
-      );
-    }
+    // Same-chain transfers are allowed (withdrawal from Gateway to wallet)
+    // Cross-chain transfers will go through Gateway's burn/mint process
 
     const amountInAtomicUnits = BigInt(Math.floor(parseFloat(amount) * 1_000_000));
 
-    // Custodial flow (Circle Wallet)
-    const { data: wallet, error: walletError } = await supabase
+    // Get the user's multichain SCA wallet
+    const { data: wallets, error: walletError } = await supabase
       .from("wallets")
-      .select("circle_wallet_id")
+      .select("circle_wallet_id, address")
       .eq("user_id", user.id)
-      .single();
+      .eq("type", "sca")
+      .limit(1);
 
-    if (walletError || !wallet?.circle_wallet_id) {
+    if (walletError) {
+      console.error("Database error fetching wallets:", walletError);
       return NextResponse.json(
-        { error: "No Circle wallet found for this user." },
+        { error: "Database error when fetching wallets." },
+        { status: 500 }
+      );
+    }
+
+    if (!wallets || wallets.length === 0 || !wallets[0]?.circle_wallet_id) {
+      console.log(`No SCA wallet found for user ${user.id}`);
+      return NextResponse.json(
+        { error: "No Circle wallet found. Please ensure wallet is created during signup." },
         { status: 404 }
       );
     }
 
-    const transferResult = await transferUnifiedBalanceCircle(
-      wallet.circle_wallet_id,
+    const wallet = wallets[0];
+    const walletAddress = wallet.address as Address;
+    const recipient = recipientAddress || walletAddress;
+
+    // Use EOA-signed burn/mint process for all transfers (same-chain and cross-chain)
+    const { attestation, attestationSignature } = await transferGatewayBalanceWithEOA(
+      user.id,
       amountInAtomicUnits,
       sourceChain as SupportedChain,
       destinationChain as SupportedChain,
-      recipientAddress as Address | undefined
+      recipient as Address,
+      walletAddress
     );
 
-    const { burnTxHash, attestation, mintTxHash } = transferResult;
+    // Execute mint on destination chain
+    const mintTx: Transaction = await executeMintCircle(
+      walletAddress,
+      destinationChain as SupportedChain,
+      attestation,
+      attestationSignature
+    );
+
+    const attestationHash = attestation;
+    const mintTxHash = mintTx.txHash;
 
     // Store transaction in database
     await supabase.from("transaction_history").insert([
@@ -114,12 +139,12 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      burnTxHash,
-      attestation,
+      attestation: attestationHash,
       mintTxHash,
       sourceChain,
       destinationChain,
       amount: parseFloat(amount),
+      recipient,
     });
   } catch (error: any) {
     console.error("Error in transfer:", error);

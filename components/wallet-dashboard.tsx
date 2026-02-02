@@ -41,6 +41,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator"
 import { TransactionHistory } from "@/components/transaction-history";
 import { toast } from "sonner";
+import { Copy, RefreshCw } from "lucide-react";
 
 type SupportedChain = "arcTestnet" | "baseSepolia" | "avalancheFuji";
 
@@ -56,23 +57,35 @@ export function WalletDashboard() {
   }, []);
 
   useEffect(() => {
-    const checkCircleWallet = async () => {
+    const initializeWallets = async () => {
       const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
+        // Initialize EOA wallets for Gateway signing
+        try {
+          await fetch("/api/gateway/init-eoa-wallets", { method: "POST" });
+        } catch (error) {
+          console.error("Failed to initialize EOA wallets:", error);
+        }
+
+        // Check for Circle Wallet (exclude EOA signer wallets from UI)
         const { data, error } = await supabase
           .from("wallets")
-          .select("wallet_address")
-          .eq("user_id", user.id);
+          .select("wallet_address, type")
+          .eq("user_id", user.id)
+          .neq("type", "gateway_signer"); // Exclude EOA signer wallets
 
         if (data && data.length > 0 && !error) {
           setHasCircleWallet(true);
           setCircleWalletAddresses(data.map(w => w.wallet_address));
+        } else {
+          setHasCircleWallet(false);
+          setCircleWalletAddresses([]);
         }
       }
       setIsCheckingCircleWallet(false);
     };
-    checkCircleWallet();
+    initializeWallets();
   }, []);
 
   const { isConnected, isConnecting } = useAccount();
@@ -88,6 +101,34 @@ export function WalletDashboard() {
   const formatAddressSuffix = (address: string) => {
     if (!address || address.length < 10) return "";
     return `(${address.slice(0, 5)}...${address.slice(-4)})`;
+  };
+
+  // Helper function to copy address to clipboard
+  const copyAddress = async (address: string) => {
+    try {
+      await navigator.clipboard.writeText(address);
+      toast.success("Address Copied", {
+        description: "Wallet address copied to clipboard",
+      });
+    } catch (err) {
+      toast.error("Copy Failed", {
+        description: "Failed to copy address to clipboard",
+      });
+    }
+  };
+
+  // Helper function to validate amount for deposit (positive number only)
+  const isValidDepositAmount = (amount: string): boolean => {
+    if (!amount) return false;
+    const num = parseFloat(amount);
+    return !isNaN(num) && num > 0;
+  };
+
+  // Helper function to validate amount for transfer (positive number and sufficient gateway balance)
+  const isValidTransferAmount = (amount: string): boolean => {
+    if (!amount) return false;
+    const num = parseFloat(amount);
+    return !isNaN(num) && num > 0 && num <= gatewayBalance;
   };
   const [totalBalance, setTotalBalance] = useState<number | null>(null);
   const [gatewayBalance, setGatewayBalance] = useState<number>(0);
@@ -174,6 +215,17 @@ export function WalletDashboard() {
     fetchBalances();
   }, [allWalletAddresses, isCheckingCircleWallet]);
 
+  // Auto-refresh balances every 30 seconds
+  useEffect(() => {
+    if (allWalletAddresses.length === 0) return;
+
+    const interval = setInterval(() => {
+      fetchBalances(false); // Don't show loading state for auto-refresh
+    }, 30000); // 30 seconds
+
+    return () => clearInterval(interval);
+  }, [allWalletAddresses]);
+
   const handleDeposit = async () => {
     if (!depositAmount) {
       toast.error("Invalid Amount", {
@@ -189,11 +241,23 @@ export function WalletDashboard() {
     }
 
     setDepositLoading(true);
+    
+    // Show initial progress toast
+    const progressToast = toast.loading("Initiating Deposit...", {
+      description: "Approving USDC and preparing transaction",
+    });
+    
     try {
       const payload: any = {
         chain: "arcTestnet",
         amount: depositAmount,
       };
+
+      // Update progress for API call
+      toast.loading("Processing Deposit...", {
+        id: progressToast,
+        description: "Sending transaction to the network",
+      });
 
       const response = await fetch("/api/gateway/deposit", {
         method: "POST",
@@ -207,6 +271,7 @@ export function WalletDashboard() {
       const data = await response.json();
 
       toast.success("Deposit Successful", {
+        id: progressToast,
         description: `Transaction Hash: ${data.txHash}`,
       });
 
@@ -236,14 +301,16 @@ export function WalletDashboard() {
       });
       return;
     }
-    if (sourceChain === destinationChain) {
-      toast.error("Invalid Chain Selection", {
-        description: "Source and destination chains must be different.",
-      });
-      return;
-    }
+    // Same-chain transfers are allowed (withdrawal from Gateway to wallet)
+    // Cross-chain transfers will go through Gateway's burn/mint process
 
     setTransferLoading(true);
+    
+    // Show initial progress toast
+    const progressToast = toast.loading("Initiating Transfer...", {
+      description: "Creating burn intent and submitting for attestation",
+    });
+    
     try {
       const payload: any = {
         sourceChain,
@@ -251,6 +318,12 @@ export function WalletDashboard() {
         amount: transferAmount,
         recipientAddress: recipientAddress || undefined,
       };
+
+      // Update progress for API call
+      toast.loading("Processing Transfer...", {
+        id: progressToast,
+        description: "Minting USDC on destination chain",
+      });
 
       const response = await fetch("/api/gateway/transfer", {
         method: "POST",
@@ -294,8 +367,13 @@ export function WalletDashboard() {
       }
       const data = await response.json();
 
+      const successMessage = data.isSameChain 
+        ? `Withdrawal Transaction Hash: ${data.withdrawTxHash}`
+        : `Mint Transaction Hash: ${data.mintTxHash}`;
+      
       toast.success("Transfer Successful", {
-        description: `Mint Transaction Hash: ${data.mintTxHash}`,
+        id: progressToast,
+        description: successMessage,
       });
 
       setTransferAmount("");
@@ -352,10 +430,22 @@ export function WalletDashboard() {
 
             <Card>
               <CardHeader>
-                <CardTitle>USDC Balance Overview</CardTitle>
-                <CardDescription>
-                  Your combined balance across all wallets and chains.
-                </CardDescription>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <CardTitle>USDC Balance Overview</CardTitle>
+                    <CardDescription>
+                      Your combined balance across all wallets and chains.
+                    </CardDescription>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => fetchBalances()}
+                    disabled={balanceLoading}
+                  >
+                    <RefreshCw className={`h-4 w-4 ${balanceLoading ? 'animate-spin' : ''}`} />
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
                 {balanceLoading || isConnecting ? (
@@ -371,7 +461,7 @@ export function WalletDashboard() {
                         Arc Gateway Balance
                       </p>
                       <p className="text-2xl font-bold">
-                        {gatewayBalance.toFixed(2)} USDC
+                        {gatewayBalance.toLocaleString('en-US', { minimumFractionDigits: 6, maximumFractionDigits: 6 })} USDC
                       </p>
                     </div>
                     <Separator className="my-4" />
@@ -380,7 +470,7 @@ export function WalletDashboard() {
                         Wallet Balance
                       </p>
                       <p className="text-2xl font-bold">
-                        {walletBalance.toFixed(2)} USDC
+                        {walletBalance.toLocaleString('en-US', { minimumFractionDigits: 6, maximumFractionDigits: 6 })} USDC
                       </p>
                     </div>
                     {chainBalances.filter(cb => cb.balance > 0).length > 0 ? (
@@ -388,13 +478,22 @@ export function WalletDashboard() {
                         {chainBalances.filter(cb => cb.balance > 0).map((cb, idx) => (
                           <li
                             key={`wallet-${idx}-${cb.chain}-${cb.balance}`}
-                            className="flex justify-between"
+                            className="flex justify-between items-center gap-2"
                           >
-                            <span className="capitalize">
-                              {cb.chain} <span className="text-[10px]">{formatAddressSuffix(cb.address)}</span>
+                            <span className="capitalize flex items-center gap-2">
+                              {cb.chain} 
+                              <span className="text-[10px] text-muted-foreground">{formatAddressSuffix(cb.address)}</span>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-5 w-5 p-0"
+                                onClick={() => copyAddress(cb.address)}
+                              >
+                                <Copy className="h-3 w-3" />
+                              </Button>
                             </span>
                             <span className="font-mono">
-                              {cb.balance.toFixed(2)}
+                              {cb.balance.toFixed(6)}
                             </span>
                           </li>
                         ))}
@@ -442,7 +541,7 @@ export function WalletDashboard() {
                     </div>
                     <Button
                       onClick={handleDeposit}
-                      disabled={depositLoading || !hasCircleWallet || !depositAmount}
+                      disabled={depositLoading || !hasCircleWallet || !isValidDepositAmount(depositAmount)}
                       className="w-full"
                     >
                       {depositLoading ? "Processing..." : "Deposit"}
@@ -490,6 +589,14 @@ export function WalletDashboard() {
                         onChange={(e) => setTransferAmount(e.target.value)}
                         disabled={transferLoading}
                       />
+                      {transferAmount && parseFloat(transferAmount) > 0 && (
+                        <p className="text-xs text-muted-foreground">
+                          Available: {gatewayBalance.toLocaleString('en-US', { minimumFractionDigits: 6, maximumFractionDigits: 6 })} USDC
+                          {parseFloat(transferAmount) > gatewayBalance && (
+                            <span className="text-red-500"> (Insufficient balance)</span>
+                          )}
+                        </p>
+                      )}
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="recipient-address">
@@ -507,7 +614,7 @@ export function WalletDashboard() {
                     </div>
                     <Button
                       onClick={handleTransfer}
-                      disabled={transferLoading || !hasCircleWallet || !transferAmount}
+                      disabled={transferLoading || !hasCircleWallet || !isValidTransferAmount(transferAmount)}
                       className="w-full"
                     >
                       {transferLoading ? "Processing..." : "Transfer"}
@@ -515,6 +622,36 @@ export function WalletDashboard() {
                   </div>
                 </TabsContent>
               </Tabs>
+            </CardContent>
+          </Card>
+
+          {/* --- Funding Help Section --- */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Need Testnet USDC?</CardTitle>
+              <CardDescription>
+                Get funds to test cross-chain transfers.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <Alert>
+                  <AlertCircleIcon className="h-4 w-4" />
+                  <AlertTitle>Circle Faucet</AlertTitle>
+                  <AlertDescription>
+                    Visit the <a href="https://faucet.circle.com/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Circle Faucet</a> to get testnet USDC on Arc, Base Sepolia, and Avalanche Fuji.
+                  </AlertDescription>
+                </Alert>
+                <div className="text-sm text-muted-foreground">
+                  <p className="font-medium mb-2">Quick Steps:</p>
+                  <ol className="list-decimal list-inside space-y-1">
+                    <li>Get your Circle Wallet address from the "Connected Wallets" section</li>
+                    <li>Visit the Circle Faucet and enter your wallet address</li>
+                    <li>Select the desired testnet and request USDC</li>
+                    <li>Wait for the transaction to confirm, then deposit to Gateway</li>
+                  </ol>
+                </div>
+              </div>
             </CardContent>
           </Card>
 
