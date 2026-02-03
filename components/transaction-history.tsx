@@ -72,7 +72,7 @@ interface Transaction {
 
 // Chain configuration for explorer links
 const CHAIN_EXPLORERS: Record<string, string> = {
-  arcTestnet: "https://testnet.arcscan.app",
+  arcTestnet: "https://testnet.arcscan.app/",
   baseSepolia: "https://sepolia.basescan.org/",
   avalancheFuji: "https://testnet.snowtrace.io/",
 };
