@@ -517,32 +517,59 @@ async function signBurnIntentCircle(
   return signature as `0x${string}`;
 }
 
-// Helper to execute mint specifically on a target blockchain using walletAddress (as per reference script)
+// Helper to execute mint specifically on a target blockchain
+// If walletId is provided, uses Circle wallet to execute mint
+// If userId is provided without walletId, uses EOA wallet to execute mint
 export async function executeMintCircle(
-  walletAddress: Address,
+  walletIdOrUserId: string,
   destinationChain: SupportedChain,
   attestation: string,
-  signature: string
+  signature: string,
+  isUserId: boolean = false
 ): Promise<Transaction> {
   const blockchain = CIRCLE_CHAIN_NAMES[destinationChain];
   if (!blockchain) throw new Error(`No Circle blockchain mapping for ${destinationChain}`);
 
   let response;
   try {
-    response = await circleDeveloperSdk.createContractExecutionTransaction({
-      walletAddress,
-      blockchain,
-      contractAddress: GATEWAY_MINTER_ADDRESS,
-      abiFunctionSignature: "gatewayMint(bytes,bytes)",
-      abiParameters: [attestation, signature],
-      fee: {
-        type: "level",
-        config: { feeLevel: "MEDIUM" },
-      },
-    });
+    if (isUserId) {
+      // Use EOA wallet to execute mint for external recipients
+      const { walletId } = await getSignerWalletIdForUser(walletIdOrUserId, destinationChain);
+      
+      response = await circleDeveloperSdk.createContractExecutionTransaction({
+        walletId,
+        contractAddress: GATEWAY_MINTER_ADDRESS,
+        abiFunctionSignature: "gatewayMint(bytes,bytes)",
+        abiParameters: [attestation, signature],
+        fee: {
+          type: "level",
+          config: { feeLevel: "MEDIUM" },
+        },
+      });
+    } else {
+      // Use Circle SCA wallet to execute mint
+      response = await circleDeveloperSdk.createContractExecutionTransaction({
+        walletId: walletIdOrUserId,
+        contractAddress: GATEWAY_MINTER_ADDRESS,
+        abiFunctionSignature: "gatewayMint(bytes,bytes)",
+        abiParameters: [attestation, signature],
+        fee: {
+          type: "level",
+          config: { feeLevel: "MEDIUM" },
+        },
+      });
+    }
   } catch (error: any) {
     console.error("Circle API error during mint:", error?.response?.data || error.message);
-    throw new Error(`Failed to execute mint transaction: ${error?.response?.data?.message || error.message}`);
+    
+    // Check if this is an insufficient gas error
+    const errorData = error?.response?.data;
+    if (errorData?.code === 155258 || errorData?.errors?.[0]?.error === 'invalid_value') {
+      const walletIdUsed = isUserId ? (await getSignerWalletIdForUser(walletIdOrUserId, destinationChain)).walletId : walletIdOrUserId;
+      throw new Error(`INSUFFICIENT_GAS:${walletIdUsed}:${blockchain}`);
+    }
+    
+    throw new Error(`Failed to execute mint transaction: ${errorData?.message || error.message}`);
   }
 
   const challengeId = response.data?.id;
@@ -572,6 +599,40 @@ async function getSignerWalletIdForUser(
 
   const blockchain = chainMap[chain];
   return await getGatewayEOAWalletId(userId, blockchain);
+}
+
+/**
+ * Check if a wallet has sufficient native token balance for gas fees
+ * Returns the wallet address and balance info
+ */
+export async function checkWalletGasBalance(
+  walletId: string,
+  chain: SupportedChain
+): Promise<{ hasGas: boolean; address: string; balance: string }> {
+  const chainConfig = getChainConfig(chain);
+  
+  // Get wallet address
+  const walletResponse = await circleDeveloperSdk.getWallet({ id: walletId });
+  const walletAddress = walletResponse.data?.wallet?.address as Address;
+  
+  if (!walletAddress) {
+    throw new Error(`Could not fetch address for wallet ID: ${walletId}`);
+  }
+
+  // Check native token balance
+  const publicClient = createPublicClient({
+    chain: chainConfig,
+    transport: http(),
+  });
+
+  const balance = await publicClient.getBalance({ address: walletAddress });
+  const hasGas = balance > BigInt(0);
+
+  return {
+    hasGas,
+    address: walletAddress,
+    balance: balance.toString(),
+  };
 }
 
 async function signBurnIntentWithEOA(
@@ -803,7 +864,7 @@ export async function transferUnifiedBalanceCircle(
 
   // 6. Execute Mint on Destination (Custodial)
   const mintTx = await executeMintCircle(
-    walletAddress,
+    walletId,
     destinationChain,
     finalAttestation,
     finalSignature

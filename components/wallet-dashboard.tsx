@@ -334,6 +334,48 @@ export function WalletDashboard() {
         const error = await response.json();
         const errorMessage = error.error || "Transfer failed";
 
+        // Handle insufficient gas error with wallet details
+        if (errorMessage === "INSUFFICIENT_GAS" && error.walletAddress) {
+          const chainNames: Record<SupportedChain, string> = {
+            arcTestnet: "Arc Testnet",
+            avalancheFuji: "Avalanche Fuji",
+            baseSepolia: "Base Sepolia",
+          };
+          const nativeTokens: Record<SupportedChain, string> = {
+            arcTestnet: "ARC",
+            avalancheFuji: "AVAX",
+            baseSepolia: "ETH",
+          };
+          const chainName = chainNames[destinationChain];
+          const nativeToken = nativeTokens[destinationChain];
+          
+          // Dismiss the loading toast
+          toast.dismiss(progressToast);
+          
+          // Show detailed error with copy button for wallet address
+          toast.error("Insufficient Gas", {
+            description: (
+              <div className="space-y-2">
+                <p>Your EOA wallet needs {nativeToken} on {chainName} to execute the mint.</p>
+                <div className="flex items-center gap-2 bg-muted p-2 rounded text-xs font-mono">
+                  <span className="flex-1 truncate">{error.walletAddress}</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 p-0"
+                    onClick={() => copyAddress(error.walletAddress)}
+                  >
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                </div>
+                <p className="text-xs">Send {nativeToken} to this address and try again.</p>
+              </div>
+            ),
+            duration: 10000, // Show for 10 seconds
+          });
+          return; // Exit early, don't throw
+        }
+        
         if (errorMessage.includes("insufficient funds for transfer") ||
           errorMessage.includes("exceeds the balance of the account")) {
           const chainNames: Record<SupportedChain, string> = {

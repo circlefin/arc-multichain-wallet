@@ -55,7 +55,7 @@ export default function ProtectedLayout({
         </footer>
       </div>
 
-      <Toaster />
+      <Toaster toastOptions={{ style: { width: '450px', maxWidth: '90vw' } }} />
     </main>
   );
 }
