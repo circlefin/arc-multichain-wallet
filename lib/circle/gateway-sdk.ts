@@ -575,11 +575,23 @@ export async function executeMintCircle(
   const challengeId = response.data?.id;
   if (!challengeId) throw new Error("Failed to initiate minting challenge");
 
+  // Wait for transaction confirmation to get the txHash
+  console.log(`Waiting for mint transaction ${challengeId} to confirm...`);
+  const txHash = await waitForTransactionConfirmation(challengeId);
+  
+  // Fetch the final transaction object
   const tx = await circleDeveloperSdk.getTransaction({ id: challengeId });
   if (!tx?.data?.transaction) {
     throw new Error(`Failed to fetch transaction ${challengeId}`);
   }
-  return tx.data.transaction;
+  
+  // Ensure txHash is set
+  const transaction = tx.data.transaction;
+  if (!transaction.txHash) {
+    transaction.txHash = txHash;
+  }
+  
+  return transaction;
 }
 
 /**
