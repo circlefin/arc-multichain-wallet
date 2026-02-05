@@ -72,7 +72,7 @@ interface Transaction {
 
 // Chain configuration for explorer links
 const CHAIN_EXPLORERS: Record<string, string> = {
-  arcTestnet: "https://testnet.arcscan.app",
+  arcTestnet: "https://testnet.arcscan.app/",
   baseSepolia: "https://sepolia.basescan.org/",
   avalancheFuji: "https://testnet.snowtrace.io/",
 };
@@ -245,14 +245,9 @@ export function TransactionHistory() {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Transaction History</CardTitle>
-        <CardDescription>
-          View all your deposit and transfer transactions with detailed status information
-        </CardDescription>
-      </CardHeader>
+      
       <CardContent>
-        <div className="space-y-4">
+        <div className="space-y-4 mt-7">
           {/* Filters */}
           <div className="flex flex-col sm:flex-row gap-4">
             <Input

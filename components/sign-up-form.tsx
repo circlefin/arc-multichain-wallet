@@ -58,7 +58,7 @@ export function SignUpForm({
     }
 
     try {
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
@@ -66,6 +66,25 @@ export function SignUpForm({
         },
       });
       if (error) throw error;
+
+      // If user is created, initialize wallets in the background
+      if (data.user) {
+        try {
+          // Create wallet set with SCA wallets for each chain
+          await fetch("/api/wallet-set", {
+            method: "POST",
+          });
+
+          // Create EOA signer wallets for Gateway (hidden from UI)
+          await fetch("/api/gateway/init-eoa-wallets", {
+            method: "POST",
+          });
+        } catch (walletError) {
+          console.error("Error creating wallets during signup:", walletError);
+          // Continue with signup even if wallet creation fails
+        }
+      }
+
       router.push("/dashboard");
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : "An error occurred");

@@ -47,18 +47,17 @@ export function TransferForm({ onSuccess }: TransferFormProps) {
 
   const handleTransfer = async () => {
     if (!transferAmount) {
-      setTransferError("Please provide private key and amount");
+      setTransferError("Please provide amount");
       return;
     }
 
-    if (sourceChain === destinationChain) {
-      setTransferError("Source and destination chains must be different");
-      return;
-    }
+    // Same-chain transfers are allowed (withdrawal from Gateway to wallet)
+    // Cross-chain transfers will go through Gateway's burn/mint process
 
     setTransferLoading(true);
     setTransferSuccess(null);
     setTransferError(null);
+    
     try {
       const response = await fetch("/api/gateway/transfer", {
         method: "POST",
@@ -74,6 +73,17 @@ export function TransferForm({ onSuccess }: TransferFormProps) {
         const error = await response.json();
         const errorMessage = error.error || "Transfer failed";
 
+        // Check for insufficient gas error with wallet info
+        if (errorMessage === "INSUFFICIENT_GAS" && error.walletAddress) {
+          const chainName = CHAIN_NAMES[destinationChain];
+          const nativeToken = NATIVE_TOKENS[destinationChain];
+          throw new Error(
+            `Insufficient gas in EOA wallet: Your EOA signing wallet needs ${nativeToken} on ${chainName} to execute the mint transaction.\n\n` +
+            `EOA Wallet Address: ${error.walletAddress}\n\n` +
+            `Please send some ${nativeToken} to this address on ${chainName} and try again.`
+          );
+        }
+        
         // Parse and format common error messages for better UX
         if (
           errorMessage.includes("insufficient funds for transfer") ||
@@ -112,7 +122,10 @@ export function TransferForm({ onSuccess }: TransferFormProps) {
         }
       }
       const data = await response.json();
-      setTransferSuccess(`Transfer successful! Mint Tx: ${data.mintTxHash}`);
+      const successMessage = data.isSameChain
+        ? `Transfer successful! Withdrawal Tx: ${data.withdrawTxHash}`
+        : `Transfer successful! Mint Tx: ${data.mintTxHash}`;
+      setTransferSuccess(successMessage);
       setTransferAmount("");
       setTimeout(() => {
         onSuccess();

@@ -20,7 +20,7 @@ A sample application demonstrating how to build optimal USDC interoperability UX
    cd arc-multichain-wallet
    npm install
    ```
-
+   
 2. Create a `.env.local` file in the project root:
 
    ```bash
@@ -39,10 +39,21 @@ A sample application demonstrating how to build optimal USDC interoperability UX
    CIRCLE_ENTITY_SECRET=your_entity_secret
    ```
 
-3. Start Supabase locally:
+3. Set up Supabase (Local)
+   This project uses **local Supabase** via Docker for development:
 
    ```bash
+   # Start local Supabase (requires Docker)
    npx supabase start
+
+   # Push database migrations
+   npx supabase db push
+   ```
+   **Note:** If you prefer cloud-hosted Supabase, you can use:
+   
+   ```bash
+   npx supabase link
+   npx supabase db push
    ```
 
 4. Start the development server:
@@ -107,6 +118,34 @@ This sample application:
 - Is not intended for production use without modification
 
 See `SECURITY.md` for vulnerability reporting guidelines. Please report issues privately via Circle's bug bounty program.
+
+## Getting Testnet USDC
+
+To test the application, you'll need testnet USDC on the supported chains. Use the Circle Faucet to get free testnet tokens:
+
+### Using the Circle Faucet
+
+1. **Get Your Wallet Address**: After signing up, your Circle Wallet addresses will be displayed in the dashboard
+2. **Visit the Faucet**: Go to [https://faucet.circle.com/](https://faucet.circle.com/)
+3. **Request Tokens**: 
+   - Enter your wallet address
+   - Select the desired testnet (Arc Testnet, Base Sepolia, or Avalanche Fuji)
+   - Request USDC
+4. **Wait for Confirmation**: Transactions typically confirm within a few minutes
+5. **Deposit to Gateway**: Once received, use the "Deposit" tab to add USDC to your Gateway balance
+
+### Supported Testnets
+
+- **Arc Testnet**: Primary chain for deposits and Gateway operations
+- **Base Sepolia**: Ethereum Layer 2 testnet
+- **Avalanche Fuji**: Avalanche testnet
+
+### Note on Gas Fees
+
+When transferring USDC cross-chain, you'll need native tokens on the destination chain to pay for gas fees:
+- **Arc Testnet**: USDC (no additional gas token needed)
+- **Base Sepolia**: ETH (get from [Base Sepolia Faucet](https://www.alchemy.com/faucets/base-sepolia))
+- **Avalanche Fuji**: AVAX (get from [Avalanche Faucet](https://core.app/tools/testnet-faucet/))
 
 ## Resources
 
