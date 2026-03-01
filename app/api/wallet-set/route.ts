@@ -88,10 +88,11 @@ export async function POST(req: NextRequest) {
 
     const walletSetId = walletSetResponse.data.walletSet.id;
 
-    // Create ONE multichain SCA wallet (works across all EVM chains)
+    // Create multichain SCA wallet on ALL supported chains
+    // This ensures Circle SDK recognizes the wallet on each chain for transactions
     const walletsResponse = await circleDeveloperSdk.createWallets({
       accountType: "SCA",
-      blockchains: ["ARC-TESTNET"], // Create on one chain, same address on all
+      blockchains: ["ARC-TESTNET", "BASE-SEPOLIA", "AVAX-FUJI"], // Create on all chains
       count: 1,
       walletSetId,
     });

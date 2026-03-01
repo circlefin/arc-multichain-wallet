@@ -74,10 +74,10 @@ export const DOMAIN_IDS = {
 export type SupportedChain = keyof typeof USDC_ADDRESSES;
 
 // Mapping for Circle API "blockchain" parameter
-export const CIRCLE_CHAIN_NAMES: Record<SupportedChain, string> = {
-  avalancheFuji: "AVAX-FUJI",
-  baseSepolia: "BASE-SEPOLIA",
-  arcTestnet: "ARC-TESTNET",
+export const CIRCLE_CHAIN_NAMES: Record<SupportedChain, Blockchain> = {
+  avalancheFuji: Blockchain.AvaxFuji,
+  baseSepolia: Blockchain.BaseSepolia,
+  arcTestnet: Blockchain.ArcTestnet,
 };
 
 export const CHAIN_BY_DOMAIN: Record<number, SupportedChain> = {
@@ -319,9 +319,10 @@ async function initiateContractInteraction(
   walletId: string,
   contractAddress: Address,
   abiFunctionSignature: string,
-  args: any[]
+  args: any[],
+  blockchain?: Blockchain
 ): Promise<string> {
-  const response = await circleDeveloperSdk.createContractExecutionTransaction({
+  const txParams: any = {
     walletId,
     contractAddress,
     abiFunctionSignature,
@@ -332,7 +333,14 @@ async function initiateContractInteraction(
         feeLevel: "HIGH",
       },
     }
-  });
+  };
+
+  // Add blockchain parameter if provided
+  if (blockchain) {
+    txParams.blockchain = blockchain;
+  }
+
+  const response = await circleDeveloperSdk.createContractExecutionTransaction(txParams);
 
   const responseData = response.data as unknown as ChallengeResponse;
 
@@ -351,16 +359,18 @@ export async function initiateDepositFromCustodialWallet(
   delegateAddress?: Address
 ): Promise<string> {
   const usdcAddress = USDC_ADDRESSES[chain];
+  const blockchain = CIRCLE_CHAIN_NAMES[chain];
   let lastTxHash: string | undefined = undefined;
 
   // Step 1: Add delegate if provided (allows EOA to sign burn intents)
   if (delegateAddress) {
-    console.log(`Step 1: Adding delegate ${delegateAddress} for wallet ${walletId}...`);
+    console.log(`Step 1: Adding delegate ${delegateAddress} for wallet ${walletId} on ${blockchain}...`);
     const addDelegateChallengeId = await initiateContractInteraction(
       walletId,
       GATEWAY_WALLET_ADDRESS as Address,
       "addDelegate(address,address)",
-      [usdcAddress, delegateAddress]
+      [usdcAddress, delegateAddress],
+      blockchain
     );
 
     console.log(`Step 2: Waiting for addDelegate transaction to confirm...`);
@@ -371,24 +381,26 @@ export async function initiateDepositFromCustodialWallet(
   // Only deposit if amount > 0
   if (amountInAtomicUnits > BigInt(0)) {
     const stepOffset = delegateAddress ? 2 : 0;
-    
-    console.log(`Step ${1 + stepOffset}: Approving Gateway contract for wallet ${walletId}...`);
+
+    console.log(`Step ${1 + stepOffset}: Approving Gateway contract for wallet ${walletId} on ${blockchain}...`);
     const approvalChallengeId = await initiateContractInteraction(
       walletId,
       usdcAddress as Address,
       "approve(address,uint256)",
-      [GATEWAY_WALLET_ADDRESS, amountInAtomicUnits.toString()]
+      [GATEWAY_WALLET_ADDRESS, amountInAtomicUnits.toString()],
+      blockchain
     );
 
     console.log(`Step ${2 + stepOffset}: Waiting for approval transaction (Challenge ID: ${approvalChallengeId}) to confirm...`);
     await waitForTransactionConfirmation(approvalChallengeId);
 
-    console.log(`Step ${3 + stepOffset}: Calling deposit function on Gateway for wallet ${walletId}...`);
+    console.log(`Step ${3 + stepOffset}: Calling deposit function on Gateway for wallet ${walletId} on ${blockchain}...`);
     const depositChallengeId = await initiateContractInteraction(
       walletId,
       GATEWAY_WALLET_ADDRESS as Address,
       "deposit(address,uint256)",
-      [usdcAddress, amountInAtomicUnits.toString()]
+      [usdcAddress, amountInAtomicUnits.toString()],
+      blockchain
     );
 
     console.log(`Step ${4 + stepOffset}: Waiting for deposit transaction (Challenge ID: ${depositChallengeId}) to confirm...`);
@@ -412,24 +424,27 @@ export async function withdrawFromCustodialWallet(
   amountInAtomicUnits: bigint
 ): Promise<string> {
   const usdcAddress = USDC_ADDRESSES[chain];
+  const blockchain = CIRCLE_CHAIN_NAMES[chain];
 
-  console.log(`Step 1: Calling initiateWithdrawal function on Gateway for wallet ${walletId}...`);
+  console.log(`Step 1: Calling initiateWithdrawal function on Gateway for wallet ${walletId} on ${blockchain}...`);
   const initiateWithdrawalChallengeId = await initiateContractInteraction(
     walletId,
     GATEWAY_WALLET_ADDRESS as Address,
     "initiateWithdrawal(address,uint256)",
-    [usdcAddress, amountInAtomicUnits.toString()]
+    [usdcAddress, amountInAtomicUnits.toString()],
+    blockchain
   );
 
   console.log(`Step 2: Waiting for initiateWithdrawal transaction (Challenge ID: ${initiateWithdrawalChallengeId}) to confirm...`);
   await waitForTransactionConfirmation(initiateWithdrawalChallengeId);
 
-  console.log(`Step 3: Calling withdraw function on Gateway for wallet ${walletId}...`);
+  console.log(`Step 3: Calling withdraw function on Gateway for wallet ${walletId} on ${blockchain}...`);
   const withdrawChallengeId = await initiateContractInteraction(
     walletId,
     GATEWAY_WALLET_ADDRESS as Address,
     "withdraw(address)",
-    [usdcAddress]
+    [usdcAddress],
+    blockchain
   );
 
   console.log(`Step 4: Waiting for withdraw transaction (Challenge ID: ${withdrawChallengeId}) to confirm...`);
@@ -531,34 +546,34 @@ export async function executeMintCircle(
   if (!blockchain) throw new Error(`No Circle blockchain mapping for ${destinationChain}`);
 
   let response;
+  let walletAddress: string;
+
   try {
     if (isUserId) {
       // Use EOA wallet to execute mint for external recipients
-      const { walletId } = await getSignerWalletIdForUser(walletIdOrUserId, destinationChain);
-      
-      response = await circleDeveloperSdk.createContractExecutionTransaction({
-        walletId,
-        contractAddress: GATEWAY_MINTER_ADDRESS,
-        abiFunctionSignature: "gatewayMint(bytes,bytes)",
-        abiParameters: [attestation, signature],
-        fee: {
-          type: "level",
-          config: { feeLevel: "MEDIUM" },
-        },
-      });
+      const { address } = await getSignerWalletIdForUser(walletIdOrUserId, destinationChain);
+      walletAddress = address;
     } else {
-      // Use Circle SCA wallet to execute mint
-      response = await circleDeveloperSdk.createContractExecutionTransaction({
-        walletId: walletIdOrUserId,
-        contractAddress: GATEWAY_MINTER_ADDRESS,
-        abiFunctionSignature: "gatewayMint(bytes,bytes)",
-        abiParameters: [attestation, signature],
-        fee: {
-          type: "level",
-          config: { feeLevel: "MEDIUM" },
-        },
-      });
+      // Use Circle SCA wallet to execute mint - get wallet address from Circle
+      const walletResponse = await circleDeveloperSdk.getWallet({ id: walletIdOrUserId });
+      walletAddress = walletResponse.data?.wallet?.address || '';
+      if (!walletAddress) {
+        throw new Error(`Could not find address for wallet ID: ${walletIdOrUserId}`);
+      }
     }
+
+    // Execute mint using walletAddress (not walletId) for multichain support
+    response = await circleDeveloperSdk.createContractExecutionTransaction({
+      walletAddress, // Use walletAddress for multichain transactions
+      blockchain, // Specify destination blockchain
+      contractAddress: GATEWAY_MINTER_ADDRESS,
+      abiFunctionSignature: "gatewayMint(bytes,bytes)",
+      abiParameters: [attestation, signature],
+      fee: {
+        type: "level",
+        config: { feeLevel: "MEDIUM" },
+      },
+    } as any);
   } catch (error: any) {
     console.error("Circle API error during mint:", error?.response?.data || error.message);
     
@@ -722,9 +737,16 @@ export async function transferGatewayBalanceWithEOA(
   }
 
   // 3. Construct Burn Intent
+  // maxFee is the maximum fee Gateway can charge (deducted from transfer amount)
+  // It should be reasonable but less than the transfer amount
+  // Gateway typically charges ~0.1% to 0.2% of the transfer
+  const maxFee = amount > BigInt(10_000_000) // If > 10 USDC
+    ? BigInt(2_010_000) // Allow up to 2.01 USDC fee
+    : amount / BigInt(10); // Otherwise allow 10% of amount as max fee
+
   const burnIntentData: BurnIntentData = {
     maxBlockHeight: maxUint256,
-    maxFee: BigInt(2_010_000), // Gateway requires at least 2.000005 USDC
+    maxFee: maxFee,
     spec: {
       version: 1,
       sourceDomain: sourceDomain,
@@ -815,9 +837,14 @@ export async function transferUnifiedBalanceCircle(
   const recipient = recipientAddress || walletAddress;
 
   // 2. Construct Burn Intent
+  // maxFee is the maximum fee Gateway can charge (deducted from transfer amount)
+  const maxFee = amount > BigInt(10_000_000) // If > 10 USDC
+    ? BigInt(1_010_000) // Allow up to 1.01 USDC fee
+    : amount / BigInt(10); // Otherwise allow 10% of amount as max fee
+
   const burnIntentData: BurnIntentData = {
     maxBlockHeight: maxUint256,
-    maxFee: BigInt(1_010_000),
+    maxFee: maxFee,
     spec: {
       version: 1,
       sourceDomain: DOMAIN_IDS[sourceChain],
