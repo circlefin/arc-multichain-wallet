@@ -38,11 +38,11 @@ export interface GatewayEOAWallet {
  * Circle SDK automatically derives the same address across all chains
  */
 export async function generateGatewayEOAWallet(walletSetId: string): Promise<GatewayEOAWallet> {
-  // Create one EOA wallet on ARC-TESTNET (will have same address on all chains)
+  // Create EOA wallet on ALL supported chains so Circle SDK recognizes it everywhere
   const response = await circleDeveloperSdk.createWallets({
     walletSetId,
     accountType: "EOA",
-    blockchains: ["ARC-TESTNET"],
+    blockchains: ["ARC-TESTNET", "BASE-SEPOLIA", "AVAX-FUJI"],
     count: 1,
   });
 
