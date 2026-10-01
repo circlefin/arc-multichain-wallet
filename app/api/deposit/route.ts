@@ -16,14 +16,27 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { NextRequest, NextResponse } from 'next/server';
-import { handleDeposit } from '@/lib/deposit';
+import { NextRequest, NextResponse } from "next/server";
+import { handleDeposit } from "@/lib/deposit";
+import { requireUser } from "@/lib/utils/api-auth";
 
 export async function POST(req: NextRequest) {
-  const params = await req.json();
-  const result = await handleDeposit(params);
-  if ('error' in result) {
+  // Enforce session authentication to eliminate client-controlled userId spoofing
+  const authz = await requireUser();
+  if (!authz.ok) return authz.response;
+
+  let params: Record<string, unknown>;
+  try {
+    params = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  // Derive userId strictly from the authenticated session
+  const result = await handleDeposit({ ...params, userId: authz.user.id });
+  if ("error" in result) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }
+
   return NextResponse.json(result);
 }
