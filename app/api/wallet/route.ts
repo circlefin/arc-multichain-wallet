@@ -18,23 +18,46 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { circleDeveloperSdk } from "@/lib/circle/sdk";
+import { requireUser } from "@/lib/utils/api-auth";
 
 export async function POST(req: NextRequest) {
   try {
-    const { walletSetId } = await req.json();
+    // Authenticate the caller and verify walletSetId ownership before creating wallets
+    const authz = await requireUser();
+    if (!authz.ok) return authz.response;
 
-    if (!walletSetId) {
+    let body: { walletSetId?: string };
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
+
+    const { walletSetId } = body ?? {};
+    if (!walletSetId || typeof walletSetId !== "string" || !walletSetId.trim()) {
       return NextResponse.json(
         { error: "walletSetId is required" },
         { status: 400 }
       );
     }
 
+    // Ensure the walletSetId belongs to the authenticated user's existing records
+    const { data: owned, error: queryError } = await authz.supabase
+      .from("wallets")
+      .select("id")
+      .eq("wallet_set_id", walletSetId.trim())
+      .limit(1)
+      .maybeSingle();
+
+    if (queryError || !owned) {
+      return NextResponse.json({ error: "Wallet set not found" }, { status: 404 });
+    }
+
     const response = await circleDeveloperSdk.createWallets({
       accountType: "EOA",
       blockchains: ["ARC-TESTNET", "BASE-SEPOLIA", "AVAX-FUJI"],
       count: 1,
-      walletSetId,
+      walletSetId: walletSetId.trim(),
     });
 
     if (!response.data?.wallets?.length) {
@@ -45,7 +68,6 @@ export async function POST(req: NextRequest) {
     }
 
     const [createdWallet] = response.data.wallets;
-
     return NextResponse.json(createdWallet, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";

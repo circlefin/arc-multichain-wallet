@@ -18,13 +18,23 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { circleDeveloperSdk } from "@/lib/circle/sdk";
-import { createClient } from "@/lib/supabase/server";
+import { requireUser } from "@/lib/utils/api-auth";
 
 export async function PUT(req: NextRequest) {
   try {
-    const { entityName } = await req.json();
+    // Authenticate caller on PUT to prevent unauthenticated wallet-set generation
+    const authz = await requireUser();
+    if (!authz.ok) return authz.response;
 
-    if (!entityName.trim()) {
+    let body: { entityName?: string };
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
+
+    const entityName = body?.entityName;
+    if (!entityName || typeof entityName !== "string" || !entityName.trim()) {
       return NextResponse.json(
         { error: "entityName is required" },
         { status: 400 }
@@ -32,19 +42,20 @@ export async function PUT(req: NextRequest) {
     }
 
     const response = await circleDeveloperSdk.createWalletSet({
-      name: entityName,
+      name: entityName.trim(),
     });
 
-    if (!response.data) {
+    if (!response.data?.walletSet) {
       return NextResponse.json(
-        "The response did not include a valid wallet set",
+        { error: "The response did not include a valid wallet set" },
         { status: 500 }
       );
     }
 
     return NextResponse.json({ ...response.data.walletSet }, { status: 201 });
-  } catch (error: any) {
-    console.error(`Wallet set creation failed: ${error.message}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    console.error(`Wallet set creation failed: ${message}`);
     return NextResponse.json(
       { error: "Failed to create wallet set" },
       { status: 500 }
@@ -52,16 +63,12 @@ export async function PUT(req: NextRequest) {
   }
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(_req: NextRequest) {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const authz = await requireUser();
+    if (!authz.ok) return authz.response;
 
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const { user, supabase } = authz;
 
     // Check if wallet set already exists for this user
     const { data: existingWallets } = await supabase
@@ -88,11 +95,10 @@ export async function POST(req: NextRequest) {
 
     const walletSetId = walletSetResponse.data.walletSet.id;
 
-    // Create multichain SCA wallet on ALL supported chains
-    // This ensures Circle SDK recognizes the wallet on each chain for transactions
+    // Create multichain SCA wallet across supported testnet chains
     const walletsResponse = await circleDeveloperSdk.createWallets({
       accountType: "SCA",
-      blockchains: ["ARC-TESTNET", "BASE-SEPOLIA", "AVAX-FUJI"], // Create on all chains
+      blockchains: ["ARC-TESTNET", "BASE-SEPOLIA", "AVAX-FUJI"],
       count: 1,
       walletSetId,
     });
@@ -101,18 +107,19 @@ export async function POST(req: NextRequest) {
       throw new Error("Failed to create wallet");
     }
 
-    // Store ONE multichain wallet in database
     const wallet = walletsResponse.data.wallets[0];
-    const walletRecords = [{
-      user_id: user.id,
-      circle_wallet_id: wallet.id,
-      wallet_set_id: walletSetId,
-      wallet_address: wallet.address,
-      address: wallet.address,
-      blockchain: "MULTICHAIN", // Indicates it works across all chains
-      type: "sca",
-      name: "Multichain Wallet",
-    }];
+    const walletRecords = [
+      {
+        user_id: user.id,
+        circle_wallet_id: wallet.id,
+        wallet_set_id: walletSetId,
+        wallet_address: wallet.address,
+        address: wallet.address,
+        blockchain: "MULTICHAIN",
+        type: "sca",
+        name: "Multichain Wallet",
+      },
+    ];
 
     const { error: insertError } = await supabase
       .from("wallets")
@@ -128,10 +135,11 @@ export async function POST(req: NextRequest) {
       walletSetId,
       wallets: walletRecords,
     });
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to create wallet set";
     console.error("Wallet set creation failed:", error);
     return NextResponse.json(
-      { error: error.message || "Failed to create wallet set" },
+      { error: message },
       { status: 500 }
     );
   }
