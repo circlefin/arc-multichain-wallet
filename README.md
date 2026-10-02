@@ -4,6 +4,25 @@ A sample application demonstrating how to build optimal USDC interoperability UX
 
 <img width="830" height="658" alt="Interface for depositing to and transfering from a Gateway balance" src="public/screenshot.png" />
 
+## Table of Contents
+
+- [Features](#features)
+- [Prerequisites](#prerequisites)
+- [Getting Started](#getting-started)
+- [How It Works](#how-it-works)
+- [Environment Variables](#environment-variables)
+- [Security & Usage Model](#security--usage-model)
+- [Getting Testnet USDC](#getting-testnet-usdc)
+- [Resources](#resources)
+
+## Features
+
+- **Sign up / sign in** (`app/auth/`) — Supabase-authenticated accounts.
+- **Dashboard** (`/dashboard`) — unified, cross-chain USDC balance backed by Circle Gateway.
+- **Deposit** — transfer USDC to the Gateway Wallet to make it available across every supported chain.
+- **Cross-chain transfer** — sign a burn intent, get it attested by the Gateway API, and mint USDC on the destination chain.
+- **Transaction history** (`/dashboard/history`) — deposits and transfers for the signed-in user.
+
 ## Prerequisites
 
 - Node.js 20.x or newer
@@ -16,28 +35,18 @@ A sample application demonstrating how to build optimal USDC interoperability UX
 1. Clone the repository and install dependencies:
 
    ```bash
-   git clone git@github.com:circlefin/arc-multichain-wallet.git
+   git clone git@github.com:akelani-circle/arc-multichain-wallet.git
    cd arc-multichain-wallet
    npm install
    ```
    
-2. Create a `.env.local` file in the project root:
+2. Set up environment variables:
 
    ```bash
    cp .env.example .env.local
    ```
 
-   Required variables:
-
-   ```bash
-   # Supabase
-   NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your_publishable_or_anon_key
-
-   # Circle
-   CIRCLE_API_KEY=your_circle_api_key
-   CIRCLE_ENTITY_SECRET=your_entity_secret
-   ```
+   Then edit `.env.local` and fill in all required values (see [Environment Variables](#environment-variables) below).
 
 3. Set up Supabase (Local)
    This project uses **local Supabase** via Docker for development:
@@ -90,19 +99,24 @@ When you deposit USDC to the Gateway Wallet, it becomes part of your unified bal
 
 ## Environment Variables
 
-| Variable                              | Scope       | Purpose                                                                  |
-| ------------------------------------- | ----------- | ------------------------------------------------------------------------ |
-| `NEXT_PUBLIC_SUPABASE_URL`            | Public      | Supabase project URL                                                     |
-| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Public     | Supabase anonymous/public key                                            |
-| `CIRCLE_API_KEY`                      | Server-side | Circle API key for Gateway operations                                    |
-| `CIRCLE_ENTITY_SECRET`                | Server-side | Circle entity secret for wallet operations                               |
+Copy `.env.example` to `.env.local` and fill in the required values:
 
-## Usage Notes
+```bash
+# Supabase
+NEXT_PUBLIC_SUPABASE_URL=your-project-url
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-publishable-or-anon-key
 
-- Designed for testnet only
-- Requires valid Circle API credentials and Supabase configuration
-- Private keys are processed server-side and never stored
-- Never use mainnet private keys with this application
+# Circle
+CIRCLE_API_KEY=your-circle-api-key
+CIRCLE_ENTITY_SECRET=your-circle-entity-secret
+```
+
+| Variable | Scope | Purpose |
+| --- | --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` | Public | Supabase project URL. |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Public | Supabase publishable (anon) key. |
+| `CIRCLE_API_KEY` | Server-side, secret | Circle API key for Gateway and wallet operations. |
+| `CIRCLE_ENTITY_SECRET` | Server-side, secret | Circle entity secret for signing wallet operations. |
 
 ## Scripts
 
@@ -112,9 +126,9 @@ When you deposit USDC to the Gateway Wallet, it becomes part of your unified bal
 ## Security & Usage Model
 
 This sample application:
-- Assumes testnet usage only
+- Assumes testnet usage only — never use mainnet private keys with this application
 - Handles secrets via environment variables
-- Processes private keys server-side without storage
+- Processes private keys server-side and never stores them
 - Is not intended for production use without modification
 
 See `SECURITY.md` for vulnerability reporting guidelines. Please report issues privately via Circle's bug bounty program.

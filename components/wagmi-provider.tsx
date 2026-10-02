@@ -17,7 +17,7 @@
  */
 
 "use client";
-import { WagmiConfig, createConfig } from "wagmi";
+import { WagmiProvider as WagmiCoreProvider, createConfig } from "wagmi";
 import { http } from '@wagmi/core'
 import {
   mainnet,
@@ -68,10 +68,10 @@ const wagmiConfig = createConfig({
 export function WagmiProvider({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(() => new QueryClient());
   return (
-    <WagmiConfig config={wagmiConfig}>
+    <WagmiCoreProvider config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
         {children}
       </QueryClientProvider>
-    </WagmiConfig>
+    </WagmiCoreProvider>
   );
 }
