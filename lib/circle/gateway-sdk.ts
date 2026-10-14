@@ -46,7 +46,7 @@ export const arcTestnet = {
   name: 'Arc Testnet',
   nativeCurrency: { name: 'USD Coin', symbol: 'USDC', decimals: 6 },
   rpcUrls: {
-    default: { http: [`https://rpc.testnet.arc.network/${arcRpcKey}`] },
+    default: { http: [`https://rpc.testnet.arc.io/${arcRpcKey}`] },
   },
   blockExplorers: {
     default: { name: 'Explorer', url: 'https://explorer.arc.testnet.circle.com' },
