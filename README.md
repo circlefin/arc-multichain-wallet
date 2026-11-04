@@ -2,7 +2,7 @@
 
 A sample application demonstrating how to build optimal USDC interoperability UX for wallets using Arc and Circle Gateway. This app showcases unified balance management, deposits, and cross-chain transfers across multiple EVM chains using Next.js and Supabase.
 
-<img width="830" height="658" alt="Interface for depositing to and transfering from a Gateway balance" src="public/screenshot.png" />
+<img width="830" height="658" alt="Interface for depositing to and transferring from a Gateway balance" src="public/screenshot.png" />
 
 ## Table of Contents
 
@@ -49,6 +49,7 @@ A sample application demonstrating how to build optimal USDC interoperability UX
    Then edit `.env.local` and fill in all required values (see [Environment Variables](#environment-variables) below).
 
 3. Set up Supabase (Local)
+   
    This project uses **local Supabase** via Docker for development:
 
    ```bash
